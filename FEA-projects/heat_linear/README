@@ -1,0 +1,5 @@
+\partial_t u -\Delta u = f \quad \text{in } (0,T)\times \Omega,
+u=0 on \partial\Omega
+
+implicit Euler:
+(M+\Delta t \kappa K)u^{n+1}=Mu^n+\Delta t F^{n+1}

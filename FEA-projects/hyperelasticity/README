@@ -1,0 +1,104 @@
+" ============================================================================
+" Nonlinear Finite Element Simulation of Hyperelastic Deformation
+" (Compressible Neo-Hookean Hyperelasticity in deal.II)
+" ============================================================================
+"
+" Problem Overview
+" ---------------
+" This project implements a nonlinear finite element solver for large-
+" deformation elasticity using the compressible Neo-Hookean hyperelastic
+" material model. The goal is to compute the equilibrium deformation of an
+" elastic body subjected to increasing external loads, capturing geometric and
+" material nonlinearities that cannot be represented by linear elasticity.
+"
+" The solver is written in C++ using deal.II and follows a total Lagrangian
+" formulation, making it representative of the numerical methods used in modern
+" high-performance simulation engines.
+"
+"
+" Physical Problem Description
+" ----------------------------
+" We consider a two-dimensional elastic body occupying a rectangular reference
+" domain:
+"
+"   Ω = [0, L] × [0, H].
+"
+" The unknown field is the displacement vector:
+"
+"   u(X) ∈ R^2,
+"
+" which maps material points from the reference configuration to the deformed
+" configuration.
+"
+" Boundary conditions:
+"   - Dirichlet (clamped): left edge x = 0 is fixed:
+"       u = 0.
+"   - Neumann (traction): horizontal traction applied on right edge x = L.
+"
+" The applied traction is incrementally ramped from zero to its full magnitude
+" using load stepping to improve robustness of the nonlinear solve.
+"
+"
+" Governing Equations
+" -------------------
+" Kinematics:
+"   F = I + ∇u
+"   J = det(F)
+"
+" Constitutive model (compressible Neo-Hookean):
+"   First Piola–Kirchhoff stress:
+"
+"     P = μ (F − F^{−T}) + λ ln(J) F^{−T}
+"
+" where μ and λ are Lamé parameters. The dependence on F, F^{-1}, and ln(J)
+" introduces strong nonlinearity.
+"
+"
+" Weak Formulation
+" ----------------
+" The equilibrium configuration satisfies:
+"
+"   ∫_Ω  ∇v : P(F(u)) dX  =  ∫_{Γ_N} v · t dS   for all test functions v.
+"
+"
+" Numerical Method
+" ----------------
+" Spatial discretization:
+"   - Vector-valued continuous finite elements (Q1 bilinear by default).
+"
+" Nonlinear solver:
+"   - Newton–Raphson iterations with consistent tangent stiffness.
+"
+" Continuation / load stepping:
+"   - Apply traction scaled by α ∈ [0, 1] over several load steps.
+"
+" Linear solve per Newton iteration:
+"   - Preconditioned Conjugate Gradient (CG) with SSOR preconditioner.
+"
+" Newton update:
+"   - Solve   K(u_k) δu = −R(u_k)
+"   - Update  u_{k+1} = u_k + δu
+"
+"
+" Output and Visualization
+" ------------------------
+" The solver writes displacement results per load step to VTU files suitable for
+" ParaView. Typical observables:
+"   - Smooth displacement fields
+"   - Increasing deformation with load step
+"   - Poisson contraction in the transverse direction
+"   - Nonlinear response due to large deformation effects
+"
+"
+" Why This Problem Matters
+" ------------------------
+" This project demonstrates:
+"   - Implementation of a nonlinear PDE/FEM solver in modern C++
+"   - Residual and Jacobian assembly for vector-valued fields
+"   - Robust nonlinear solution strategy (Newton + continuation)
+"   - Sparse linear algebra and constraint handling in a large C++ framework
+"
+" The workflow mirrors industrial simulation engines and is directly relevant to
+" roles requiring algorithms, performance awareness, and numerical robustness.
+" ============================================================================
+

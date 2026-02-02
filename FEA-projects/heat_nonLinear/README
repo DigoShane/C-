@@ -1,0 +1,10 @@
+\partial_t u − kappa \Delta u + u^3 =0, in \Omega,
+u=0 on \partial \Omega,
+
+Implicit Euler at step 
+R(u^{n+1}) = (M + \Delta t \kappa K) u^{n+1} + \Delta t \, M (u^{n+1})^3 - M u^n = 0
+
+Newton requires Jacobian:
+J = (M + \Delta t \kappa K) + \Delta t M (3 (u^{n+1})^2)
+
+(where the nonlinear part is assembled element-wise)
