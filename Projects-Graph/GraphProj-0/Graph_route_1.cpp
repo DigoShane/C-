@@ -1,0 +1,427 @@
+// incremental_graph_sim.cpp
+//
+// Project 1: Incremental Dependency Graph Simulator (C++)
+// ------------------------------------------------------
+// What it does:
+//   - Build a directed dependency graph of computations (nodes).
+//   - Cache node values.
+//   - When an input changes, mark affected nodes "dirty" (invalidate cache).
+//   - Recompute ONLY dirty nodes, in dependency order (parents before children).
+//   - Reject cyclic graphs.
+//
+// Build:
+//   g++ -std=c++17 -O2 -Wall -Wextra incremental_graph_sim.cpp -o inc_graph
+//
+// Run:
+//   ./inc_graph
+
+#include <iostream>
+#include <vector>
+#include <unordered_map>
+#include <unordered_set>
+#include <queue>
+#include <stdexcept>
+#include <functional>
+#include <optional>
+#include <string>
+
+// --------------------------- Utilities ---------------------------
+//This helper function takes a vector of integers and joins them into a string like "1, 2, 3". It's used for printing lists of node IDs.
+static std::string join_ids(const std::vector<int> &ids) {
+    std::string s;
+    for (size_t i = 0; i < ids.size(); ++i) {
+        s += std::to_string(ids[i]);
+        if (i + 1 < ids.size()) s += ", ";
+    }
+    return s;
+}
+
+// --------------------------- Node Model ---------------------------
+//Struct to define node of a calss.
+enum class NodeKind { Input, Computed };
+
+struct Node {
+    int id = -1;
+    NodeKind kind = NodeKind::Input;
+
+    // Graph structure:
+    std::vector<int> parents;   // dependencies
+    std::vector<int> children;  // dependents
+
+    // Cached state:
+    double value = 0.0;
+    bool dirty = false;
+
+    // Only for computed nodes:
+    // compute(parents_values) -> value
+    std::function<double(const std::vector<double>&)> compute_fn;
+
+    // Convenience: name (optional)
+    std::string name;
+};
+
+// --------------------------- Engine ---------------------------
+
+class IncrementalEngine {
+public:
+    // Add an input node with an initial value.
+    void add_input_node(int id, double initial_value, std::string name = "") {
+        ensure_unique_id(id);
+        Node n;
+        n.id = id;
+        n.kind = NodeKind::Input;
+        n.value = initial_value;
+        n.dirty = false;
+        n.name = std::move(name);
+        nodes_[id] = std::move(n);
+    }
+
+    // Add a computed node with a compute function.
+    // Parents are set via add_edge(parent, child).
+    void add_computed_node(
+        int id,
+        std::function<double(const std::vector<double>&)> compute_fn,
+        std::string name = ""
+    ) {
+        ensure_unique_id(id);
+        if (!compute_fn) throw std::invalid_argument("compute_fn must be non-empty");
+
+        Node n;
+        n.id = id;
+        n.kind = NodeKind::Computed;
+        n.compute_fn = std::move(compute_fn);
+        n.value = 0.0;
+        n.dirty = true; // until first computed
+        n.name = std::move(name);
+        nodes_[id] = std::move(n);
+    }
+
+    // Add dependency edge: parent -> child
+    void add_edge(int parent, int child) {
+        Node &p = get_node_ref(parent);
+        Node &c = get_node_ref(child);
+
+        p.children.push_back(child);
+        c.parents.push_back(parent);
+    }
+
+    // Validate the whole graph is a DAG (no cycles).
+    // Also useful to catch accidental construction errors early.
+    void validate_acyclic() const {
+        // topological sorting
+        std::unordered_map<int, int> indeg;
+
+	//set all nodes to have degree 0.
+        for (const auto &kv : nodes_) {//see 288
+            indeg[kv.first] = 0;//indeg={id:incoming degree}. 1st entry of struct nodes is the id. 
+        }
+	//counting incoming edges
+        for (const auto &kv : nodes_) {
+            const Node &n = kv.second;
+            for (int ch : n.children) {
+                auto it = indeg.find(ch);
+                if (it == indeg.end())// If the element doesnt exist, throw error.
+                    throw std::runtime_error("Graph references unknown node id: " + std::to_string(ch));
+                it->second += 1; //indeg is a map whose 2nd is the in deg.
+            }
+        }
+
+	//queue to store degree 0. Part of Kahn's algorithm.
+        std::queue<int> q;//store id of indeg=0 nodes.
+        for (const auto &kv : indeg) {
+            if (kv.second == 0) q.push(kv.first);
+        }
+
+        size_t popped = 0;
+        while (!q.empty()) {
+            int u = q.front(); q.pop();
+            popped++;//nodes_={id:Nodes}
+            const Node &nu = nodes_.at(u);//equiv to nodes_[u], but throws exception (instead of creating new entry) if it doesnt exist.
+            for (int v : nu.children) {
+                indeg[v]--;
+                if (indeg[v] == 0) q.push(v);//push new 0 indeg nodes into queue.
+
+            }//For each u dequeued, t reduces indeg of children nodes.
+        }
+	//The above should pop all nodes. If it doesnt, cyclic.
+        if ( popped != nodes_.size() ) {
+            throw std::runtime_error("Cycle detected: graph is not acyclic.");
+        }
+    }
+
+    // Set input value and mark affected nodes dirty.
+    // You can call recompute() afterwards.
+    void set_input(int id, double new_value, bool trace = false) {
+        Node &n = get_node_ref(id);
+        if (n.kind != NodeKind::Input) {
+            throw std::runtime_error("set_input called on non-input node id=" + std::to_string(id));
+        }
+
+        if (trace) {
+            std::cout << "\n[set_input] " << label(n) << " = " << new_value << "\n";
+        }
+
+        // If value doesn't change, you may skip invalidation; but for safety we invalidate only on change.
+        if (n.value == new_value) {
+            if (trace) std::cout << "  value unchanged; no invalidation.\n";
+            return;
+        }
+
+        n.value = new_value;
+
+        // Mark this node dirty and propagate to descendants.
+        mark_dirty_and_propagate(id, trace);
+    }
+
+    // Recompute only dirty nodes, respecting dependencies.
+    // This recomputes a "dirty subgraph" in topological order.
+    void recompute(bool trace = false) {
+        // First, compute indegree restricted to dirty-subgraph ordering constraints:
+        // We need to ensure if A->B and both are dirty, A is computed before B.
+        // We'll do topo sort over only the dirty nodes.
+        std::unordered_set<int> dirty_nodes;
+
+        for (auto &kv : nodes_) {
+            if (kv.second.dirty) dirty_nodes.insert(kv.first);
+        }
+
+        if (dirty_nodes.empty()) {
+            if (trace) std::cout << "\n[recompute] No dirty nodes.\n";
+            return;
+        }
+
+        // Count how many dirty parents each dirty node has
+        std::unordered_map<int, int> dirty_indeg;
+
+        for (int id : dirty_nodes) dirty_indeg[id] = 0;
+
+        for (int id : dirty_nodes) {
+            const Node &n = nodes_.at(id);
+            for (int p : n.parents) {
+                if (dirty_nodes.count(p)) dirty_indeg[id] += 1;
+            }
+        }
+
+	//Process nodes with no dirty parents.
+        std::queue<int> q;
+        for (const auto &kv : dirty_indeg) {
+            if (kv.second == 0) q.push(kv.first);
+        }
+
+        if (trace) {
+            std::cout << "\n[recompute] Dirty nodes: {" << join_set(dirty_nodes) << "}\n";
+        }
+
+        size_t processed = 0;
+	//Process each node.
+        while (!q.empty()) {
+            int id = q.front(); q.pop();
+            processed++;
+
+            Node &n = get_node_ref(id);
+
+            // If input node is dirty, we just mark it clean (its value already set).
+            if (n.kind == NodeKind::Input) {
+                if (trace) std::cout << "  clean input " << label(n) << " (value=" << n.value << ")\n";
+                n.dirty = false;//marked clean, value already set.
+            } else {
+                // computed node: all parents must be clean now.
+                // (We only guaranteed dirty-parents order; but non-dirty parents should already be clean by definition.)
+                std::vector<double> parent_vals;
+                for (int p : n.parents) {//gather parent values.
+                    const Node &pn = nodes_.at(p);
+                    if (pn.dirty) {
+                        // This should not happen if ordering is correct.
+                        throw std::runtime_error("Internal error: parent still dirty when computing node id=" + std::to_string(id));
+                    }
+                    parent_vals.push_back(pn.value);
+                }
+
+                double old = n.value;
+                double newv = n.compute_fn(parent_vals);//compute new value
+		//update and mark clean.
+                n.value = newv;
+                n.dirty = false;
+
+                if (trace) {
+                    std::cout << "  compute " << label(n) << ": " << old << " -> " << newv
+                              << " (parents=" << join_ids(n.parents) << ")\n";
+                }
+            }
+
+            // Reduce indegree of dirty children and enqueue if ready.
+            for (int ch : n.children) {
+                if (!dirty_nodes.count(ch)) continue;
+                dirty_indeg[ch] -= 1;
+                if (dirty_indeg[ch] == 0) q.push(ch);
+            }
+        }
+
+        if (processed != dirty_nodes.size()) {
+            // If this happens, the dirty-subgraph itself contains a cycle (should not happen if whole graph is acyclic).
+            throw std::runtime_error("Could not process all dirty nodes (cycle in dirty-subgraph or bug).");
+        }
+    }
+
+    //returns node value, gives error if dirty.
+    double get_value(int id) const {
+        const Node &n = get_node_const(id);
+        if (n.dirty) {
+            throw std::runtime_error("Value requested for dirty node id=" + std::to_string(id) +
+                                     " (call recompute() first).");
+        }
+        return n.value;
+    }
+
+    //prints all node with their current state.
+    void print_state() const {
+        std::cout << "\n[state]\n";
+        for (const auto &kv : nodes_) {
+            const Node &n = kv.second;
+            std::cout << "  " << label(n)
+                      << " kind=" << (n.kind == NodeKind::Input ? "Input" : "Computed")
+                      << " value=" << n.value
+                      << " dirty=" << (n.dirty ? "true" : "false")
+                      << " parents=[" << join_ids(n.parents) << "]"
+                      << " children=[" << join_ids(n.children) << "]"
+                      << "\n";
+        }
+    }
+
+private:
+    std::unordered_map<int, Node> nodes_;//Hash map = {id : Nodes}.
+
+    //checks if two nodes have the same id. Throws exception if it does.
+    void ensure_unique_id(int id) const {
+        if (nodes_.count(id)) {
+            throw std::runtime_error("Duplicate node id: " + std::to_string(id));
+        }
+    }
+
+    //Looks up node by 'id', and returns a reference (Node&) to it.
+    Node& get_node_ref(int id) {
+        auto it = nodes_.find(id);
+        if (it == nodes_.end()) throw std::runtime_error("Unknown node id: " + std::to_string(id));
+        return it->second; //2nd is Node.
+    }
+
+    //Looks up a node by ID and returns a read-only reference to it
+    const Node& get_node_const(int id) const {
+        auto it = nodes_.find(id);
+        if (it == nodes_.end()) throw std::runtime_error("Unknown node id: " + std::to_string(id));
+        return it->second;
+    }
+
+    std::string label(const Node &n) const {
+        if (!n.name.empty()) return n.name + "(" + std::to_string(n.id) + ")";
+        return "node(" + std::to_string(n.id) + ")";
+    }
+
+    void mark_dirty_and_propagate(int start_id, bool trace) {
+        // BFS/DFS over descendants.
+        std::queue<int> q;
+        q.push(start_id);
+
+        std::unordered_set<int> seen;
+        seen.insert(start_id);
+
+        while (!q.empty()) {
+            int u = q.front(); q.pop();
+            Node &nu = get_node_ref(u);
+
+            // mark dirty (even for input; it will be cleaned on recompute)
+            if (!nu.dirty) {
+                nu.dirty = true;
+                if (trace) std::cout << "  mark dirty: " << label(nu) << "\n";
+            } else {
+                if (trace) std::cout << "  already dirty: " << label(nu) << "\n";
+            }
+
+            for (int ch : nu.children) {
+                if (!seen.count(ch)) {
+                    seen.insert(ch);
+                    q.push(ch);
+                }
+            }
+        }
+    }
+
+    static std::string join_set(const std::unordered_set<int> &s) {
+        std::vector<int> v;
+        for (int x : s) v.push_back(x);
+        // no need to sort for correctness; sorting improves readability
+        std::sort(v.begin(), v.end());
+        return join_ids(v);
+    }
+};
+
+// --------------------------- Demo ---------------------------
+
+int main() {
+    try {
+        IncrementalEngine eng;
+
+        // Example graph:
+        // A(1), B(2) are inputs
+        // C(3) = A + B
+        // D(4) = 2*C
+        eng.add_input_node(1, 1.0, "A");
+        eng.add_input_node(2, 2.0, "B");
+
+	//using lambda expression for the compute fn
+        eng.add_computed_node(3,
+            [](const std::vector<double> &p) {
+                // parents: [A, B]
+                return p.at(0) + p.at(1);
+            },
+            "C=A+B"
+        );
+
+        eng.add_computed_node(4,
+            [](const std::vector<double> &p) {
+                // parents: [C]
+                return 2.0 * p.at(0);
+            },
+            "D=2*C"
+        );
+
+        // Dependencies:
+        eng.add_edge(1, 3); // A -> C
+        eng.add_edge(2, 3); // B -> C
+        eng.add_edge(3, 4); // C -> D
+
+        // Validate DAG:
+        eng.validate_acyclic();
+
+        // First compute:
+        eng.recompute(true);
+        std::cout << "\nInitial values:\n";
+        std::cout << "  C = " << eng.get_value(3) << "\n";
+        std::cout << "  D = " << eng.get_value(4) << "\n";
+
+        // Change A:
+        eng.set_input(1, 10.0, true);
+        eng.recompute(true);
+
+        std::cout << "\nAfter A=10:\n";
+        std::cout << "  C = " << eng.get_value(3) << "\n";
+        std::cout << "  D = " << eng.get_value(4) << "\n";
+
+        // Change B:
+        eng.set_input(2, -3.0, true);
+        eng.recompute(true);
+
+        std::cout << "\nAfter B=-3:\n";
+        std::cout << "  C = " << eng.get_value(3) << "\n";
+        std::cout << "  D = " << eng.get_value(4) << "\n";
+
+        // Optional: show internal state
+        // eng.print_state();
+
+        return 0;
+    } catch (const std::exception &e) {
+        std::cerr << "\nERROR: " << e.what() << "\n";
+        return 1;
+    }
+}
+

@@ -1,0 +1,76 @@
+# Each scenario:
+#   scenario <Name>
+#   input <id> <name> <value>
+#   computed <id> <name> <op> <args...>
+#   change <id> <new_value>
+#   end
+#
+# Supported ops:
+#   add a b           => value = a + b
+#   sub a b           => value = a - b
+#   mul a b           => value = a * b
+#   scale a k         => value = k * a
+#   add_const a k     => value = a + k
+#   sum a b c ...     => value = sum(parents)
+
+scenario DiamondFanout
+input 1 A 1
+input 2 B 2
+input 3 C 3
+computed 4 D=A+B add 1 2
+computed 5 E=B+C add 2 3
+computed 6 F=D*E mul 4 5
+computed 7 G=F+A add 6 1
+computed 8 H=F+C add 6 3
+change 2 10
+end
+
+scenario LongChain
+input 1 X 0
+computed 2 A2 add_const 1 1
+computed 3 A3 add_const 2 1
+computed 4 A4 add_const 3 1
+computed 5 A5 add_const 4 1
+computed 6 A6 add_const 5 1
+computed 7 A7 add_const 6 1
+computed 8 A8 add_const 7 1
+computed 9 A9 add_const 8 1
+computed 10 A10 add_const 9 1
+change 1 5
+end
+
+scenario TwoSubgraphs
+input 1 A 2
+input 2 B 3
+computed 3 C=A+B add 1 2
+computed 4 D=10*C scale 3 10
+input 5 P 7
+input 6 Q 11
+computed 7 R=P-Q sub 5 6
+change 1 100
+end
+
+scenario CycleShouldFail
+input 1 A 1
+computed 2 B add_const 1 1
+computed 3 C add_const 2 1
+# edges via ops create deps: 1->2, 2->3; now we create a cycle by making A depend on C:
+computed 4 dummy add 3 1
+# we will add an explicit cycle edge in code by a special directive:
+# (see code: "cycle_edge u v")
+cycle_edge 3 1
+end
+
+scenario FanIn4
+input 1 A 1
+input 2 B 2
+input 3 C 3
+input 4 D 4
+# E = A + 10*B + 100*C + 1000*D (implemented as: sum(scale(B,10), scale(C,100), scale(D,1000), A))
+computed 10 B10 scale 2 10
+computed 11 C100 scale 3 100
+computed 12 D1000 scale 4 1000
+computed 5 E sum 1 10 11 12
+change 3 9
+end
+
