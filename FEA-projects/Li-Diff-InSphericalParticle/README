@@ -1,0 +1,16 @@
+=============================
+PROJECT 1
+Lithium Diffusion in a Spherical Particle
+=============================
+
+We solve:
+
+∂𝑐/∂𝑡 = ∇⋅(𝐷∇𝑐)
+
+with:
+
+No flux at r = 0 (symmetry)
+
+Imposed flux at r = R
+
+We use 2D axisymmetric approximation (simpler than true spherical FE in deal.II).
