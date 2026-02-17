@@ -1,0 +1,3 @@
+/home/shoam/Desktop/Ubuntu-Codes/C++/C-/FEA-projects/Li-Diff-InSphericalParticle/build/CMakeFiles/project1.dir
+/home/shoam/Desktop/Ubuntu-Codes/C++/C-/FEA-projects/Li-Diff-InSphericalParticle/build/CMakeFiles/edit_cache.dir
+/home/shoam/Desktop/Ubuntu-Codes/C++/C-/FEA-projects/Li-Diff-InSphericalParticle/build/CMakeFiles/rebuild_cache.dir
