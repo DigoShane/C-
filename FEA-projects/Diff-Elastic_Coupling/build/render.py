@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env pvpython
 
 import os
 import glob
@@ -6,17 +6,24 @@ import re
 from paraview.simple import *
 
 # --------------------------------------------------
-# Output directory: parent folder /figures
+# Output directory
 # --------------------------------------------------
 output_dir = os.path.abspath(os.path.join(os.getcwd(), "..", "figures"))
 os.makedirs(output_dir, exist_ok=True)
 
 # --------------------------------------------------
-# Helper: extract timestep
+# Helper
 # --------------------------------------------------
 def extract_step(filename):
     match = re.search(r'-(\d+)\.vtu', filename)
     return int(match.group(1)) if match else -1
+
+
+# --------------------------------------------------
+# Create ONE render view
+# --------------------------------------------------
+view = CreateRenderView()
+view.ViewSize = [1400, 1200]
 
 
 # ==================================================
@@ -32,60 +39,55 @@ for file in concentration_files:
     print(f"Rendering concentration step {step}")
 
     reader = XMLUnstructuredGridReader(FileName=[file])
-    view = CreateRenderView()
+    reader.UpdatePipeline()
 
     display = Show(reader, view)
-    ColorBy(display, ('POINTS', 'concentration'))
-
-    display.RescaleTransferFunctionToDataRange(True)
+    ColorBy(display, ('POINT_DATA', 'concentration'))
+    display.RescaleTransferFunctionToDataRange(True, False)
     display.SetScalarBarVisibility(view, True)
 
     view.ResetCamera()
-    view.ViewSize = [1400, 1200]
 
     SaveScreenshot(
         os.path.join(output_dir, f"concentration-{step}.png"),
         view
     )
 
+    Hide(reader, view)
     Delete(reader)
-    Delete(view)
 
 
 # ==================================================
-# 2) Displacement magnitude
+# 2) Displacement components
 # ==================================================
-displacement_files = sorted(
+disp_files = sorted(
     glob.glob("displacement-*.vtu"),
     key=extract_step
 )
 
-for file in displacement_files:
+for file in disp_files:
     step = extract_step(file)
     print(f"Rendering displacement step {step}")
 
     reader = XMLUnstructuredGridReader(FileName=[file])
-    view = CreateRenderView()
+    reader.UpdatePipeline()
 
-    display = Show(reader, view)
+    for comp in ["u_x", "u_y"]:
+        display = Show(reader, view)
+        ColorBy(display, ('POINT_DATA', comp))
+        display.RescaleTransferFunctionToDataRange(True, False)
+        display.SetScalarBarVisibility(view, True)
 
-    # VERY IMPORTANT:
-    # Use magnitude of vector automatically
-    ColorBy(display, ('POINTS', 'displacement', 'Magnitude'))
+        view.ResetCamera()
 
-    display.RescaleTransferFunctionToDataRange(True)
-    display.SetScalarBarVisibility(view, True)
+        SaveScreenshot(
+            os.path.join(output_dir, f"{comp}-{step}.png"),
+            view
+        )
 
-    view.ResetCamera()
-    view.ViewSize = [1400, 1200]
-
-    SaveScreenshot(
-        os.path.join(output_dir, f"displacement-{step}.png"),
-        view
-    )
+        Hide(reader, view)
 
     Delete(reader)
-    Delete(view)
 
 print("Rendering complete.")
 

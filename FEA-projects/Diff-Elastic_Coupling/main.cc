@@ -84,7 +84,7 @@ private:
   Vector<double> solution_u, rhs_u;
 
   // Parameters
-  const double D      = 1e-2;
+  const double D      = 1e-1;
   const double dt     = 1e-2;
   const double E      = 1.0;
   const double nu     = 0.3;
@@ -149,54 +149,74 @@ void ChemoMechanical::assemble_diffusion()
   matrix_c = 0;
   rhs_c    = 0;
 
-  QGauss<dim> quad(fe_c.degree+1);
+  QGauss<dim> quad(fe_c.degree + 1);
+
   FEValues<dim> fe_values(fe_c, quad,
-      update_values | update_gradients | update_JxW_values);
+                          update_values |
+                          update_gradients |
+                          update_JxW_values);
 
   const unsigned int dofs_per_cell = fe_c.n_dofs_per_cell();
-  const unsigned int n_q = quad.size();
+  const unsigned int n_q_points    = quad.size();
 
-  FullMatrix<double> cell_matrix(dofs_per_cell);
+  FullMatrix<double> cell_matrix(dofs_per_cell, dofs_per_cell);
   Vector<double>     cell_rhs(dofs_per_cell);
-  std::vector<types::global_dof_index> local_dofs(dofs_per_cell);
 
-  for (auto cell : dof_handler_c.active_cell_iterators())
+  std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
+
+  // storage for c^n evaluated at quadrature points
+  std::vector<double> c_old_values(n_q_points);
+
+  for (const auto &cell : dof_handler_c.active_cell_iterators())
   {
     fe_values.reinit(cell);
+
     cell_matrix = 0;
     cell_rhs    = 0;
 
-    cell->get_dof_indices(local_dofs);
+    cell->get_dof_indices(local_dof_indices);
 
-    for (unsigned int q=0;q<n_q;++q)
+    // Evaluate old solution at quadrature points
+    fe_values.get_function_values(old_solution_c, c_old_values);
+
+    for (unsigned int q = 0; q < n_q_points; ++q)
     {
-      for (unsigned int i=0;i<dofs_per_cell;++i)
+      const double JxW = fe_values.JxW(q);
+      const double c_old_q = c_old_values[q];
+
+      for (unsigned int i = 0; i < dofs_per_cell; ++i)
       {
-        double phi_i = fe_values.shape_value(i,q);
-        Tensor<1,dim> grad_i = fe_values.shape_grad(i,q);
+        const double phi_i = fe_values.shape_value(i, q);
+        const Tensor<1, dim> grad_phi_i =
+            fe_values.shape_grad(i, q);
 
-        for (unsigned int j=0;j<dofs_per_cell;++j)
+        // ----- Mass term RHS: (c^n / dt, phi_i) -----
+        cell_rhs(i) += (c_old_q / dt) * phi_i * JxW;
+
+        for (unsigned int j = 0; j < dofs_per_cell; ++j)
         {
-          double phi_j = fe_values.shape_value(j,q);
-          Tensor<1,dim> grad_j = fe_values.shape_grad(j,q);
+          const double phi_j = fe_values.shape_value(j, q);
+          const Tensor<1, dim> grad_phi_j =
+              fe_values.shape_grad(j, q);
 
-          cell_matrix(i,j) +=
-            (phi_i*phi_j/dt + D*grad_i*grad_j)
-            * fe_values.JxW(q);
+          // ----- Backward Euler diffusion matrix -----
+          cell_matrix(i, j) +=
+              ( (phi_i * phi_j) / dt
+                + D * grad_phi_i * grad_phi_j )
+              * JxW;
         }
-
-        cell_rhs(i) +=
-          (old_solution_c(local_dofs[i])/dt)
-          * phi_i * fe_values.JxW(q);
       }
     }
 
     constraints_c.distribute_local_to_global(
-        cell_matrix, cell_rhs,
-        local_dofs,
-        matrix_c, rhs_c);
+        cell_matrix,
+        cell_rhs,
+        local_dof_indices,
+        matrix_c,
+        rhs_c);
   }
 }
+
 
 /* ---------------- Diffusion Solve ---------------- */
 
@@ -207,6 +227,10 @@ void ChemoMechanical::solve_diffusion()
 
   solver.solve(matrix_c, solution_c, rhs_c,
                PreconditionIdentity());
+
+  std::cout << "||c||_2      = " << solution_c.l2_norm() << std::endl;
+  std::cout << "||c||_inf    = " << solution_c.linfty_norm() << std::endl;
+  std::cout << "-----------------------------" << std::endl;
 
   std::cout << "Diffusion CG iterations: "
             << control.last_step()
@@ -223,11 +247,13 @@ void ChemoMechanical::setup_elasticity()
 
   constraints_u.clear();
 
-  // remove rigid body motion
-  auto cell = dof_handler_u.begin_active();
-  constraints_u.add_line(cell->vertex_dof_index(0,0));
-  constraints_u.add_line(cell->vertex_dof_index(0,1));
-
+  //Clamp boundary.
+  VectorTools::interpolate_boundary_values(
+      dof_handler_u,
+      0,   // boundary id (hyper_ball uses 0)
+      Functions::ZeroFunction<dim>(dim),
+      constraints_u);
+  
   constraints_u.close();
 
   DynamicSparsityPattern dsp(dof_handler_u.n_dofs());
@@ -350,6 +376,26 @@ void ChemoMechanical::solve_elasticity()
             << "  residual: "
             << control.last_value()
             << std::endl;
+
+  double max_mag = 0.0;
+
+  for (unsigned int i = 0; i < solution_u.size(); i += dim)
+  {
+    double ux = solution_u[i];
+    double uy = solution_u[i+1];
+    double mag = std::sqrt(ux*ux + uy*uy);
+    max_mag = std::max(max_mag, mag);
+  }
+  
+  std::cout << "max |u| magnitude = "
+            << max_mag << std::endl;
+
+
+  std::cout << "||u||_2      = " << solution_u.l2_norm() << std::endl;
+  std::cout << "||u||_inf    = " << solution_u.linfty_norm() << std::endl;
+  std::cout << "max |u| comp = " << solution_u.linfty_norm() << std::endl;
+  std::cout << "-----------------------------" << std::endl;
+
 }
 
 /* ---------------- Output ---------------- */
@@ -387,7 +433,7 @@ void ChemoMechanical::run()
   setup_diffusion();
   setup_elasticity();
 
-  const unsigned int n_steps = 20;
+  const unsigned int n_steps = 200;
 
   for (unsigned int t=0;t<n_steps;++t)
   {
