@@ -1,0 +1,3 @@
+/home/shoam/Desktop/Ubuntu-Codes/C++/C-/FEA-projects/Diff-Elastic_Coupling/build/CMakeFiles/chemo_mechanical.dir
+/home/shoam/Desktop/Ubuntu-Codes/C++/C-/FEA-projects/Diff-Elastic_Coupling/build/CMakeFiles/edit_cache.dir
+/home/shoam/Desktop/Ubuntu-Codes/C++/C-/FEA-projects/Diff-Elastic_Coupling/build/CMakeFiles/rebuild_cache.dir

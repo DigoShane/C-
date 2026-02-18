@@ -1,0 +1,41 @@
+🔷 Project 3
+Diffusion–Elasticity Coupling in a Lithium Particle (Battery-Style Problem)
+
+This is highly industry-relevant (battery mechanics, swelling, chemo-mechanics).
+
+We solve:
+
+Governing equations
+
+1️⃣    Diffusion (implicit Euler)
+
+(𝑐^{𝑛+1} − 𝑐^𝑛) /Δ𝑡 = 𝐷 Δ𝑐^{𝑛+1}
+
+2️⃣    Linear elasticity with eigenstrain
+
+∇ ⋅𝜎 = 0
+σ=λtr(ε(u)−βcI)I+2μ(ε(u)−βcI)
+
+with:
+
+ε(u)=(∇u+∇u^T)/2
+
+We solve sequentially each timestep:
+
+Solve diffusion
+
+Solve elasticity with eigenstrain from updated concentration
+
+🔷 Geometry
+
+2D hyperball
+
+Zero Neumann for diffusion
+
+Fix one displacement DOF to remove rigid body motion
+
+🔷 Finite Elements
+
+Diffusion: FE_Q<2>(1)
+
+Elasticity: FESystem(FE_Q<2>(1), dim)
