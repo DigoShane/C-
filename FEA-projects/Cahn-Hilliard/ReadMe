@@ -1,0 +1,214 @@
+============================================================
+Project 2 — Cahn–Hilliard Phase Field Model (2D Circular Particle)
+============================================================
+
+Author: Shoham Sen
+Goal: Research-grade nonlinear phase-field solver in deal.II
+Geometry: 2D circular particle
+Mobility: Constant
+
+1. Physical Motivation
+
+Lithium insertion into electrode materials can lead to:
+
+Phase separation
+
+Interface formation
+
+Spinodal decomposition
+
+Domain coarsening
+
+Microstructure evolution
+
+Classical diffusion:
+
+∂c/∂t = D Δc
+
+
+cannot capture these effects.
+
+Instead, we use a thermodynamically consistent phase-field model:
+the Cahn–Hilliard equation.
+
+2. Free Energy Formulation
+
+The total free energy is:
+
+F[c] = ∫_Ω [ f(c) + (κ/2) |∇c|² ] dΩ
+
+
+where:
+
+c(x,t)   = lithium concentration
+f(c)     = bulk free energy density
+κ        = gradient penalty parameter
+Ω        = 2D circular particle
+
+3. Double-Well Potential
+
+We use the standard symmetric double-well:
+
+f(c) = 1/4 (c² − 1)²
+
+
+First derivative:
+
+f'(c) = c³ − c
+
+
+Second derivative (needed for Newton):
+
+f''(c) = 3c² − 1
+
+
+This creates two stable phases:
+
+c = +1
+c = −1
+
+4. Governing Equations
+
+Cahn–Hilliard system:
+
+∂c/∂t = ∇ · ( M ∇μ )
+
+μ = f'(c) − κ Δc
+
+
+where:
+
+μ = chemical potential
+M = mobility (constant here)
+
+
+Mass is conserved.
+Energy decreases over time.
+
+5. Mixed Formulation
+
+To avoid fourth-order derivatives, introduce μ as independent variable.
+
+Unknowns:
+
+(c, μ)
+
+
+Weak form:
+
+Find (c, μ) such that for all test functions (v, w):
+
+(1) Time evolution:
+
+∫ ( (c^{n+1} − c^n)/Δt ) v dΩ = − ∫ M ∇μ^{n+1} · ∇v dΩ
+
+
+(2) Chemical potential definition:
+
+∫ μ^{n+1} w dΩ = ∫ (c^{n+1})³ w dΩ − ∫ c^{n+1} w dΩ + ∫ κ ∇c^{n+1} · ∇w dΩ
+
+
+This is nonlinear due to c³.
+
+6. Time Discretization
+
+Backward Euler:
+
+(c^{n+1} − c^n)/Δt = ∇ · ( M ∇μ^{n+1} )
+
+
+Fully implicit.
+
+Unconditionally stable.
+Requires Newton iteration.
+
+7. Newton–Raphson Method
+
+At each time step:
+
+Initialize guess:
+c^(0) = c^n
+μ^(0) = μ^n
+
+For k = 0,1,2,...
+
+1. Assemble residual R
+2. Assemble Jacobian J
+3. Solve:  J δU = −R
+4. Update: U ← U + δU
+5. Check convergence
+
+
+Convergence criteria:
+
+||R|| < tolerance
+OR
+||δU|| < tolerance
+
+8. Geometry
+
+Domain: 2D circular particle
+
+
+Generated using: GridGenerator::hyper_ball
+
+
+Refinement: refine_global(4–6)
+
+
+Boundary condition:
+
+No-flux condition: 
+    ∂μ/∂n = 0
+    ∂c/∂n = 0
+
+
+Naturally satisfied in weak form.
+
+9. Expected Behavior
+
+Initial condition: c(x,0) = small random perturbation around uniform state
+
+
+Example: c = 0.0 + 0.01 * random_noise
+
+
+Evolution:
+
+Early time: Small fluctuations grow
+
+Intermediate time: Domains form (spinodal decomposition)
+
+Late time:
+    Domains coarsen
+    Total interfacial area decreases
+
+
+Energy decreases monotonically.
+
+10. Numerical Structure
+
+Finite element space:
+
+FESystem(FE_Q(1), 2)
+
+
+Block structure:
+
+Block 0 → concentration (c)
+Block 1 → chemical potential (μ)
+
+Solver:
+Newton nonlinear iteration
+Linear solve: GMRES or CG
+Preconditioner: block ILU or identity (initial)
+
+11. Research Relevance
+
+This project directly demonstrates: Phase separation modeling, Cathode microstructure evolution, Nonlinear PDE solvers, Newton iteration, Block finite element systems,  HPC scalability potential
+
+This is directly relevant to: Tesla cathode modeling, Battery companies (Sila, QuantumScape), Phase-field modeling roles, Advanced materials simulation roles, 
+
+12. Next Extensions
+
+After base model works: Concentration-dependent mobility, Elastic coupling (Cahn–Larché), Electrochemical boundary flux,  3D implementation,  Parallel MPI scaling,  Energy monitoring output, Adaptive mesh refinement.

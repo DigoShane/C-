@@ -1,0 +1,4 @@
+This is the Gelfand problem. The folder name was changed later. It take about 6-8 hours to run the code, cause i am running it in series.
+1. DO NOT DELETE THE SOLUTION FILES.
+2. Incase you delte it there is a copy in sol-store.
+3. The make file was written for Cahn-Hillard, so incase you detete it, you will have to rewrite the make file to run it again.

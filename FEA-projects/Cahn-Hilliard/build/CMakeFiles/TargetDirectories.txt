@@ -1,0 +1,3 @@
+/home/shoam/Desktop/Ubuntu-Codes/C++/C-/FEA-projects/Cahn-Hilliard/build/CMakeFiles/cahn_hilliard.dir
+/home/shoam/Desktop/Ubuntu-Codes/C++/C-/FEA-projects/Cahn-Hilliard/build/CMakeFiles/edit_cache.dir
+/home/shoam/Desktop/Ubuntu-Codes/C++/C-/FEA-projects/Cahn-Hilliard/build/CMakeFiles/rebuild_cache.dir
