@@ -1,0 +1,13 @@
+Implemented plane strain Phase field crack propagation for plate in tension and compated with LEFM.
+
+The energy is,
+E(u,\phi) = \int (\phi^2+\eta) \psi(\epsilon) + Gc[(1-\phi)^2/4l + l(\nabla \phi)^2]
+
+\sigma = (\phi^2+\eta)\partial\psi/\partial \epsilon
+
+div \sigma = 0.
+
+f = \delta E/\delta \phi = 2\phi \psi(\epsilon) + Gc[ -(1-\phi)/2l -2l\Delta\phi ]
+
+d\phi/dt = -\kappa f.
+
