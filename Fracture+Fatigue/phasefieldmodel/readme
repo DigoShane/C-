@@ -11,3 +11,5 @@ f = \delta E/\delta \phi = 2\phi \psi(\epsilon) + Gc[ -(1-\phi)/2l -2l\Delta\phi
 
 d\phi/dt = -\kappa f.
 
+
+Both codes are doing just that.
