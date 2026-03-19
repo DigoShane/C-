@@ -2,9 +2,9 @@ from dolfin import *
 import numpy as np
 
 # -------------------------
-# Mesh (rectangular plate)
+# Mesh
 # -------------------------
-mesh = RectangleMesh(Point(0, 0), Point(1.0, 1.0), 100, 100)
+mesh = RectangleMesh(Point(0, 0), Point(1.0, 1.0), 80, 80)
 
 # -------------------------
 # Function spaces
@@ -28,9 +28,6 @@ Gc = 2.7
 l0 = 0.02
 eta = 1e-6
 
-M = 1.0
-dt = 1e-4
-
 mu = E / (2*(1+nu))
 lmbda = E*nu / ((1+nu)*(1-2*nu))
 
@@ -43,27 +40,34 @@ def eps(u):
 def sigma(u):
     return lmbda*tr(eps(u))*Identity(2) + 2*mu*eps(u)
 
-def psi(u):
-    return 0.5*inner(sigma(u), eps(u))
+def psi_plus(u):
+    eps_u = eps(u)
+    tr_eps = tr(eps_u)
+    
+    # Macaulay bracket: <tr(ε)>₊
+    tr_pos = (tr_eps + abs(tr_eps)) / 2.0
+    
+    # Volumetric part (tension only) + full deviatoric part
+    return 0.5 * lmbda * tr_pos**2 + mu * inner(eps_u, eps_u)
 
 # -------------------------
-# Degradation function
+# Degradation
 # -------------------------
 g = (1 - phi)**2 + eta
 
 # -------------------------
-# History field (irreversibility)
+# History field
 # -------------------------
-H = Function(Vd)
-H.vector()[:] = 0.0
+Vh = FunctionSpace(mesh, "DG", 0)
+H = Function(Vh)
 
 def update_history():
-    psi_proj = project(psi(u), Vd)
+    psi_vals = project(psi_plus(u), Vh)
     H.vector()[:] = np.maximum(H.vector().get_local(),
-                               psi_proj.vector().get_local())
+                               psi_vals.vector().get_local())
 
 # -------------------------
-# Boundary conditions (Mode I)
+# Boundary conditions
 # -------------------------
 def top(x, on_boundary):
     return near(x[1], 1.0) and on_boundary
@@ -74,24 +78,21 @@ def bottom(x, on_boundary):
 def left(x, on_boundary):
     return near(x[0], 0.0) and on_boundary
 
-# symmetric opening displacement
 U_top = Expression(("0.0", "t"), t=0.0, degree=1)
 U_bottom = Expression(("0.0", "-t"), t=0.0, degree=1)
 
 bc_top = DirichletBC(Vu, U_top, top)
 bc_bottom = DirichletBC(Vu, U_bottom, bottom)
-
-# fix one point horizontally to prevent rigid motion
 bc_left = DirichletBC(Vu.sub(0), Constant(0.0), left)
 
 bcu = [bc_top, bc_bottom, bc_left]
 
 # -------------------------
-# Initial crack (notch)
+# Initial crack
 # -------------------------
 class InitialCrack(UserExpression):
     def eval(self, value, x):
-        if abs(x[1]-0.5) < 0.01 and x[0] < 0.3:
+        if abs(x[1]-0.5) < mesh.hmin() and x[0] < 0.3:
             value[0] = 1.0
         else:
             value[0] = 0.0
@@ -101,33 +102,52 @@ class InitialCrack(UserExpression):
 phi.interpolate(InitialCrack(degree=1))
 phi_old.assign(phi)
 
-# -------------------------
-# Displacement problem (linear)
-# -------------------------
-du = TrialFunction(Vu)
-a_u = inner(g * sigma(du), eps(v)) * dx
-L_u = Constant((0.0, 0.0))
-L_u_form = dot(L_u, v) * dx
+# Pre-load history to prevent damage from collapsing at step 1
+H.vector()[:] = Gc / (2.0 * l0)
 
 # -------------------------
-# Phase-field evolution (nonlinear)
+# Degraded stress
+# -------------------------
+def sigma_degraded(u, phi):
+    eps_u = eps(u)
+    tr_eps = tr(eps_u)
+    tr_pos = (tr_eps + abs(tr_eps)) / 2.0
+    tr_neg = tr_eps - tr_pos
+
+    sigma_pos = lmbda * tr_pos * Identity(2) + 2*mu*eps_u
+    sigma_neg = lmbda * tr_neg * Identity(2)
+
+    g_val = (1 - phi)**2 + eta
+    return g_val * sigma_pos + sigma_neg
+
+# -------------------------
+# Linear elasticity problem
+# -------------------------
+du = TrialFunction(Vu)
+a_u = inner(sigma_degraded(du, phi), eps(v)) * dx
+L_u = dot(Constant((0.0, 0.0)), v) * dx
+
+problem_u = LinearVariationalProblem(a_u, L_u, u, bcs=bcu)
+solver_u = LinearVariationalSolver(problem_u)
+
+# -------------------------
+# Phase-field (nonlinear)
 # -------------------------
 F_phi = (
-    (phi - phi_old)/dt * vphi * dx
-    + M*(
-        (Gc/l0)*phi*vphi*dx
-        + Gc*l0*dot(grad(phi), grad(vphi))*dx
-        - 2*(1 - phi)*H*vphi*dx
-    )
+    (Gc/l0)*phi*vphi*dx
+    + Gc*l0*dot(grad(phi), grad(vphi))*dx
+    - 2*(1 - phi)*H*vphi*dx
 )
 
 J_phi = derivative(F_phi, phi)
+
 problem_phi = NonlinearVariationalProblem(F_phi, phi, J=J_phi)
 solver_phi = NonlinearVariationalSolver(problem_phi)
 
+solver_phi.parameters["newton_solver"]["relative_tolerance"] = 1e-5
 solver_phi.parameters["newton_solver"]["absolute_tolerance"] = 1e-8
-solver_phi.parameters["newton_solver"]["relative_tolerance"] = 1e-7
-solver_phi.parameters["newton_solver"]["maximum_iterations"] = 20
+solver_phi.parameters["newton_solver"]["maximum_iterations"] = 25
+solver_phi.parameters["newton_solver"]["relaxation_parameter"] = 0.6
 
 # -------------------------
 # Output
@@ -142,8 +162,7 @@ for f in [xdmf_u, xdmf_phi]:
 # -------------------------
 # Load stepping
 # -------------------------
-load_steps = 100
-time_steps = 10
+load_steps = 200
 u_max = 0.02
 
 for step in range(load_steps):
@@ -152,30 +171,19 @@ for step in range(load_steps):
     U_top.t = load
     U_bottom.t = load
 
-    # update linear elasticity problem
-    problem_u = LinearVariationalProblem(a_u, L_u_form, u, bcs=bcu)
-    solver_u = LinearVariationalSolver(problem_u)
+    # Staggered minimization
+    for k in range(5):
 
-    for t in range(time_steps):
+        solver_u.solve()
+        update_history()
 
-        for k in range(5):  # staggered iterations
+        phi_old.assign(phi)
+        solver_phi.solve()
 
-            # Solve elasticity
-            solver_u.solve()
+        phi.vector()[:] = np.maximum(phi.vector().get_local(),
+                                     phi_old.vector().get_local() - 1e-8)
 
-            # Update history field
-            update_history()
-
-            # Solve phase-field
-            solver_phi.solve()
-
-            # Enforce irreversibility
-            phi.vector()[:] = np.maximum(phi.vector().get_local(),
-                                         phi_old.vector().get_local())
-
-            phi_old.assign(phi)
-
-    print(f"Step {step+1}/{load_steps}, load={load:.5f}")
+    print(f"Step {step+1}, load={load:.5f}")
 
     xdmf_u.write(u, step)
     xdmf_phi.write(phi, step)
