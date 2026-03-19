@@ -1,1 +1,4 @@
 phase_field_code_annotation*
+Fracture+Fatigue/*/results/*.png
+Fracture+Fatigue/*/*.h5
+Fracture+Fatigue/*/mode1_*.h5
