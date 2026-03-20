@@ -1,3 +1,0 @@
-/home/shoam/Desktop/Ubuntu-Codes/C++/FEA-projects/schrodinger_td/build/CMakeFiles/schrodinger_td.dir
-/home/shoam/Desktop/Ubuntu-Codes/C++/FEA-projects/schrodinger_td/build/CMakeFiles/edit_cache.dir
-/home/shoam/Desktop/Ubuntu-Codes/C++/FEA-projects/schrodinger_td/build/CMakeFiles/rebuild_cache.dir

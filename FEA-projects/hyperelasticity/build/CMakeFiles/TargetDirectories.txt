@@ -1,3 +1,0 @@
-/home/shoam/Desktop/Ubuntu-Codes/C++/FEA-projects/hyperelasticity/build/CMakeFiles/hyperelastic.dir
-/home/shoam/Desktop/Ubuntu-Codes/C++/FEA-projects/hyperelasticity/build/CMakeFiles/edit_cache.dir
-/home/shoam/Desktop/Ubuntu-Codes/C++/FEA-projects/hyperelasticity/build/CMakeFiles/rebuild_cache.dir

@@ -1,1 +1,0 @@
-/usr/bin/c++ -g -rdynamic -pthread -ggdb -Wl,--compress-debug-sections=zlib CMakeFiles/elasticity.dir/src/main.cc.o -o elasticity  -Wl,-rpath,/usr/local/lib /usr/local/lib/libdeal_II.g.so.9.7.1 -lrt -lm -ldl /usr/lib/x86_64-linux-gnu/libopenblas.so /usr/lib/x86_64-linux-gnu/libz.so 

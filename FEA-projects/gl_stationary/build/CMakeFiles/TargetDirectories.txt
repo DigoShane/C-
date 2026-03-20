@@ -1,3 +1,0 @@
-/home/shoam/Desktop/Ubuntu-Codes/C++/FEA-projects/gl_stationary/build/CMakeFiles/gl_stationary.dir
-/home/shoam/Desktop/Ubuntu-Codes/C++/FEA-projects/gl_stationary/build/CMakeFiles/edit_cache.dir
-/home/shoam/Desktop/Ubuntu-Codes/C++/FEA-projects/gl_stationary/build/CMakeFiles/rebuild_cache.dir
