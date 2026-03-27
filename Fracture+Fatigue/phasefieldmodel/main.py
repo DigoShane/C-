@@ -54,27 +54,62 @@ kres  = Constant(1e-6)          # residual stiffness
 Gc    = Constant(2.7)           # critical energy release rate
 l0    = Constant(0.005)          # phase-field length scale
 
-# -------------------------
-# Initial crack (Miehe notch)
-# -------------------------
-class InitialCrack(UserExpression):
-    def eval(self, values, x):
-        if x[0] <= 0.3 and abs(x[1] - 0.5) < float(l0):
-            values[0] = 1.0
-        else:
-            values[0] = 0.0
 
-    def value_shape(self):
-        return () 
+#Volumetric/Deviatoric Split for energy
+def eps(v):
+    """Symmetric small strain tensor."""
+    return sym(grad(v))
 
-d.interpolate(InitialCrack(degree=1))
-d_old.assign(d)
+def sigma(v):
+    return 2*mu*epsilon(v) + lmbda*tr(epsilon(v))*Identity(2)
+ 
+def tr_pos(A):
+    """Positive part of the trace: <tr(A)>+ = max(tr(A), 0)."""
+    return (tr(A) + abs(tr(A))) / 2.0
+ 
+def tr_neg(A):
+    """Negative part of the trace: <tr(A)>- = min(tr(A), 0)."""
+    return (tr(A) - abs(tr(A))) / 2.0
+ 
+def psi_plus(v):
+    """
+    Tensile (positive) strain energy density — drives crack growth.
+    W+ = kappa/2 * <tr(eps)>+^2  +  mu * dev(eps):dev(eps)
+    Matches Ψ₊ in the MFront behaviour.
+    """
+    e    = eps(v)
+    e_dev = e - (1/3) * tr(e) * Identity(2)   # deviatoric strain (2D)
+    return (kappa / 2.0) * tr_pos(e)**2 + mu * inner(e_dev, e_dev)
+ 
+def psi_minus(v):
+    """
+    Compressive (negative) strain energy density — does NOT drive cracks.
+    W- = kappa/2 * <tr(eps)>-^2
+    """
+    return (kappa / 2.0) * tr_neg(eps(v))**2
+ 
+def degradation(phi):
+    """
+    Quadratic degradation function  g(d) = (1-d)^2 + kres
+    Matches gᵈ in the MFront behaviour.
+    """
+    return (1.0 - phi)**2 + kres
+ 
+# History Field H
+Vh = FunctionSpace(mesh, "DG", 0)
+H  = Function(Vh, name="HistoryFunction")
+H.vector()[:] = 0.0
+ 
+def update_history():
+    """H_new = max(H_old, W+(u)) — enforces crack irreversibility."""
+    W_plus = project(psi_plus(u), Vh, solver_type="cg", preconditioner_type="ilu")
+    H.vector()[:] = np.maximum(H.vector().get_local(),
+                               W_plus.vector().get_local())
 
 
 # -------------------------
 # Boundary conditions (Miehe SENT)
 # -------------------------
-
 def bottom(x, on_boundary):
     return near(x[1], 0.0) and on_boundary
 
@@ -114,57 +149,23 @@ v_reaction = Function(Vu)
 bcu[1].apply(v_reaction.vector())   # uy=1 on top, 0 elsewhere
 
 
-#Kinematics — Volumetric/Deviatoric Split
-def eps(v):
-    """Symmetric small strain tensor."""
-    return sym(grad(v))
- 
-def tr_pos(A):
-    """Positive part of the trace: <tr(A)>+ = max(tr(A), 0)."""
-    return (tr(A) + abs(tr(A))) / 2.0
- 
-def tr_neg(A):
-    """Negative part of the trace: <tr(A)>- = min(tr(A), 0)."""
-    return (tr(A) - abs(tr(A))) / 2.0
- 
-def psi_plus(v):
-    """
-    Tensile (positive) strain energy density — drives crack growth.
-    W+ = kappa/2 * <tr(eps)>+^2  +  mu * dev(eps):dev(eps)
-    Matches Ψ₊ in the MFront behaviour.
-    """
-    e    = eps(v)
-    e_dev = e - (1.0/3.0) * tr(e) * Identity(2)   # deviatoric strain (2D)
-    return (kappa / 2.0) * tr_pos(e)**2 + mu * inner(e_dev, e_dev)
- 
-def psi_minus(v):
-    """
-    Compressive (negative) strain energy density — does NOT drive cracks.
-    W- = kappa/2 * <tr(eps)>-^2
-    """
-    return (kappa / 2.0) * tr_neg(eps(v))**2
- 
-def degradation(phi):
-    """
-    Quadratic degradation function  g(d) = (1-d)^2 + kres
-    Matches gᵈ in the MFront behaviour.
-    """
-    return (1.0 - phi)**2 + kres
- 
-# History Field H
-# (translates H = max(H, Ψ₊) in the MFront integrator)
-# H is a DG0 field stored at quadrature/cell level.
-# We use a DG0 projection for simplicity.
-Vh = FunctionSpace(mesh, "DG", 0)
-H  = Function(Vh, name="HistoryFunction")
-H.vector()[:] = 0.0
- 
-def update_history():
-    """H_new = max(H_old, W+(u)) — enforces crack irreversibility."""
-    W_plus = project(psi_plus(u), Vh, solver_type="cg", preconditioner_type="ilu")
-    H.vector()[:] = np.maximum(H.vector().get_local(),
-                               W_plus.vector().get_local())
- 
+# -------------------------
+# Initial crack (Miehe notch)
+# -------------------------
+class InitialCrack(UserExpression):
+    def eval(self, values, x):
+        if x[0] <= 0.3 and abs(x[1] - 0.5) < float(l0):
+            values[0] = 1.0
+        else:
+            values[0] = 0.0
+
+    def value_shape(self):
+        return () 
+
+d.interpolate(InitialCrack(degree=1))
+d_old.assign(d)
+
+
 #Variational Forms
  
 # ---- Displacement problem ----
@@ -175,7 +176,7 @@ def update_history():
  
 du = TrialFunction(Vu)
 vu = TestFunction(Vu)
- 
+
 def sigma_degraded(v, phi):
     """
     Degraded Cauchy stress — translates the σ expression in MFront:
