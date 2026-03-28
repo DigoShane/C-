@@ -4,23 +4,6 @@ import matplotlib.pyplot as plt
 from IPython.display import clear_output
 import pygmsh
 
-##Meshing
-#N = 100
-#lx = float(1) 
-#ly = float(1) 
-#geom = pygmsh.opencascade.Geometry()
-## Rectangle: from (0,0) to (1,1)
-#rect = geom.add_rectangle([0.0, 0.0, 0.0], lx, ly)
-## Circular hole at center with radius 0.2
-#circ = geom.add_disk([0.5, 0.5, 0.0], 0.2)
-#
-## Boolean operation: rectangle minus circle
-#final_domain = geom.boolean_difference([rect], [circ])
-#
-## GENERATE MESH
-#mesh = pygmsh.generate_mesh(geom, dim=2, geo_filename="rect_with_hole.geo")
-
-
 #--------------------------------------------------------------------------
 import gmsh
 import meshio
@@ -98,7 +81,7 @@ mu     = Constant(E / (2 * (1 + nu)))
 kappa  = Constant(lmbda + 2.0/3.0 * mu)   # bulk modulus
 
 kres  = Constant(1e-6)          # residual stiffness
-Gc    = Constant(2.7)           # critical energy release rate
+Gc    = Constant(1.0)           # critical energy release rate
 l0    = Constant(0.02)          # phase-field length scale
 
 # Boundary conditions
@@ -117,63 +100,39 @@ def top(x, on_boundary):
  
 def internal(x, on_boundary):
     return near((x[0] - 0.5)**2 + (x[1] - 0.5)**2, 0.2**2, 0.05) and on_boundary
- 
+
+#disp controlled loading.
 Uimp = Expression(("0", "t"), t=0.0, degree=0)
  
 bcu = [DirichletBC(Vu, Constant((0, 0)), internal),
        DirichletBC(Vu, Uimp, top)]
  
-# Virtual field for reaction force recovery on top boundary
-v_reaction = Function(Vu)
-bcu[1].apply(v_reaction.vector())   # uy=1 on top, 0 elsewhere
-
-
 #Kinematics — Volumetric/Deviatoric Split
 def eps(v):
-    """Symmetric small strain tensor."""
     return sym(grad(v))
  
 def tr_pos(A):
-    """Positive part of the trace: <tr(A)>+ = max(tr(A), 0)."""
     return (tr(A) + abs(tr(A))) / 2.0
  
 def tr_neg(A):
-    """Negative part of the trace: <tr(A)>- = min(tr(A), 0)."""
     return (tr(A) - abs(tr(A))) / 2.0
  
 def psi_plus(v):
-    """
-    Tensile (positive) strain energy density — drives crack growth.
-    W+ = kappa/2 * <tr(eps)>+^2  +  mu * dev(eps):dev(eps)
-    Matches Ψ₊ in the MFront behaviour.
-    """
     e    = eps(v)
     e_dev = e - (1.0/3.0) * tr(e) * Identity(2)   # deviatoric strain (2D)
     return (kappa / 2.0) * tr_pos(e)**2 + mu * inner(e_dev, e_dev)
  
 def psi_minus(v):
-    """
-    Compressive (negative) strain energy density — does NOT drive cracks.
-    W- = kappa/2 * <tr(eps)>-^2
-    """
     return (kappa / 2.0) * tr_neg(eps(v))**2
  
 def degradation(phi):
-    """
-    Quadratic degradation function  g(d) = (1-d)^2 + kres
-    Matches gᵈ in the MFront behaviour.
-    """
     return (1.0 - phi)**2 + kres
  
 # History Field H
-# (translates H = max(H, Ψ₊) in the MFront integrator)
-# H is a DG0 field stored at quadrature/cell level.
-# We use a DG0 projection for simplicity.
 Vh = FunctionSpace(mesh, "DG", 0)
 H  = Function(Vh, name="HistoryFunction")
  
 def update_history():
-    """H_new = max(H_old, W+(u)) — enforces crack irreversibility."""
     W_plus = project(psi_plus(u), Vh)
     H.vector()[:] = np.maximum(H.vector().get_local(),
                                W_plus.vector().get_local())
@@ -181,23 +140,14 @@ def update_history():
 #Variational Forms
  
 # ---- Displacement problem ----
-# Degraded total energy:
-#   Pi(u) = integral[ g(d)*W+(u)  +  W-(u) ] dV
-# Weak form (Gateaux derivative w.r.t. u):
-#   a_u(u, v) = L_u(v)
- 
 du = TrialFunction(Vu)
 vu = TestFunction(Vu)
  
 def sigma_degraded(v, phi):
-    """
-    Degraded Cauchy stress — translates the σ expression in MFront:
-      σ = κ*(g(d)*<tr>+  +  <tr>-)* I  +  2μ*g(d)*dev(ε)
-    """
     e = eps(v)
     e_vol = tr(e)
     e_vol_pos = (e_vol + abs(e_vol)) / 2.0
-    e_vol_neg = e_vol - abs(e_vol) 
+    e_vol_neg = (e_vol - abs(e_vol)) / 2.0
     e_dev = e - (1.0/3.0) * e_vol * Identity(2)
 
     sig_vol_pos = kappa * e_vol_pos * Identity(2)
@@ -209,8 +159,10 @@ def sigma_degraded(v, phi):
 # Bilinear and linear forms for u (linear in du for fixed d)
 F_u = inner(sigma_degraded(u, d), eps(vu)) * dx
 
+dF_u = derivative(F, u, du)
+
 # Nonlinear solver for displacement
-problem_u = NonlinearVariationalProblem(F_u, u, bcs=bcu, J=derivative(F_u, u))
+problem_u = NonlinearVariationalProblem(F_u, u, bcs=bcu, J=dF_u)
 solver_u = NonlinearVariationalSolver(problem_u)
 
 # Typical parameters (adjust as needed)
