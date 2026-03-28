@@ -1,0 +1,5 @@
+Implemented plane strain Phase field crack propagation for plate in tension and compated with LEFM stress values.
+
+The displacement field evolution via paraview is telling of how fracture affects loading. 
+
+The damage field evolution will show two curve radiating from the crack tip with higher and higher values of phi. We choose conservative loading.
