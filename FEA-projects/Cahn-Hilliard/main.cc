@@ -116,8 +116,8 @@ void CahnHilliard::assemble_system()
   Vector<double>     cell_rhs(dofs_per_cell);
   std::vector<types::global_dof_index> local_dofs(dofs_per_cell);
 
-  std::vector<double> c_old_values(n_q);
-  std::vector<Tensor<1,2>> grad_c_old(n_q);
+  std::vector<double> c_old_values(n_q);//TODO
+  std::vector<Tensor<1,2>> grad_c_old(n_q);//FIXME
 
   for (auto cell : dof_handler.active_cell_iterators())
   {
@@ -215,7 +215,7 @@ void CahnHilliard::run()
 
 int main()
 {
-  CahnHilliard problem;
+  CahnHilliard problem; //object problem of CahnHilliard class.
   problem.run();
 }
 
